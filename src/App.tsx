@@ -2,11 +2,41 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import axios from "axios";
 import "./App.css";
 
-const API_KEY = import.meta.env.VITE_API_KEY;
-const SEARCH_QUERY = "live music";
+const API_KEY = import.meta.env.VITE_API_KEY as string;
+const SEARCH_QUERY = "programming";
 const MAX_RESULTS = 20;
 
-function isoToDuration(iso) {
+interface VideoSnippet {
+  title: string;
+  channelId: string;
+  channelTitle: string;
+  publishTime: string;
+  thumbnails: {
+    high: {
+      url: string;
+    };
+  };
+  liveBroadcastContent?: string;
+}
+
+interface SearchItem {
+  id: {
+    kind: string;
+    videoId?: string;
+  };
+  snippet: VideoSnippet;
+}
+
+interface VideoDetails {
+  contentDetails: {
+    duration: string;
+  };
+  statistics: {
+    viewCount: string;
+  };
+}
+
+function isoToDuration(iso: string): string {
   let hours = 0,
     mins = 0,
     secs = 0;
@@ -16,45 +46,40 @@ function isoToDuration(iso) {
     if (s) secs = parseInt(s);
     return "";
   });
-  const pad = (n) => (n < 10 ? "0" + n : "" + n);
+  const pad = (n: number) => (n < 10 ? "0" + n : "" + n);
   return hours ? `${hours}:${pad(mins)}:${pad(secs)}` : `${mins}:${pad(secs)}`;
 }
 
 const App = () => {
-  const [videos, setVideos] = useState([]);
-  const [nextPageToken, setNextPageToken] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [videoDetails, setVideoDetails] = useState({});
-  const [channelLogos, setChannelLogos] = useState({});
-  const [hovered, setHovered] = useState(null);
-  const hoverTimeoutRef = useRef(null);
+  const [videos, setVideos] = useState<SearchItem[]>([]);
+  const [nextPageToken, setNextPageToken] = useState<string>("");
+  const [loading, setLoading] = useState<boolean>(false);
+  const [videoDetails, setVideoDetails] = useState<Record<string, VideoDetails>>({});
+  const [channelLogos, setChannelLogos] = useState<Record<string, string>>({});
+  const [hovered, setHovered] = useState<string | null>(null);
+  const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchVideos = useCallback(async () => {
     if (loading) return;
     setLoading(true);
     try {
-      const searchRes = await axios.get(
-        "https://www.googleapis.com/youtube/v3/search",
-        {
-          params: {
-            part: "snippet",
-            type: "video",
-            maxResults: MAX_RESULTS,
-            q: SEARCH_QUERY,
-            key: API_KEY,
-            pageToken: nextPageToken,
-          },
-        }
-      );
+      const searchRes = await axios.get("https://www.googleapis.com/youtube/v3/search", {
+        params: {
+          part: "snippet",
+          type: "video",
+          maxResults: MAX_RESULTS,
+          q: SEARCH_QUERY,
+          key: API_KEY,
+          pageToken: nextPageToken,
+        },
+      });
 
-      const newVideos = searchRes.data.items;
+      const newVideos: SearchItem[] = searchRes.data.items;
       setNextPageToken(searchRes.data.nextPageToken);
       setVideos((prev) => [...prev, ...newVideos]);
 
-      const videoIds = newVideos.map((v) => v.id.videoId);
-      const channelIds = [
-        ...new Set(newVideos.map((v) => v.snippet.channelId)),
-      ];
+      const videoIds = newVideos.map((v) => v.id.videoId).filter(Boolean) as string[];
+      const channelIds = [...new Set(newVideos.map((v) => v.snippet.channelId))];
 
       const [detailsRes, channelRes] = await Promise.all([
         axios.get("https://www.googleapis.com/youtube/v3/videos", {
@@ -73,13 +98,13 @@ const App = () => {
         }),
       ]);
 
-      const newDetails = {};
-      detailsRes.data.items.forEach((v) => {
+      const newDetails: Record<string, VideoDetails> = {};
+      detailsRes.data.items.forEach((v: any) => {
         newDetails[v.id] = v;
       });
 
-      const newLogos = {};
-      channelRes.data.items.forEach((ch) => {
+      const newLogos: Record<string, string> = {};
+      channelRes.data.items.forEach((ch: any) => {
         newLogos[ch.id] = ch.snippet.thumbnails.default.url;
       });
 
@@ -98,8 +123,7 @@ const App = () => {
 
   useEffect(() => {
     const handleScroll = () => {
-      const { scrollTop, scrollHeight, clientHeight } =
-        document.documentElement;
+      const { scrollTop, scrollHeight, clientHeight } = document.documentElement;
       if (scrollTop + clientHeight >= scrollHeight - 100 && !loading) {
         fetchVideos();
       }
@@ -108,14 +132,14 @@ const App = () => {
     return () => window.removeEventListener("scroll", handleScroll);
   }, [fetchVideos, loading]);
 
-  const handleMouseEnter = (videoId) => {
+  const handleMouseEnter = (videoId: string) => {
     hoverTimeoutRef.current = setTimeout(() => {
       setHovered(videoId);
     }, 1500);
   };
 
   const handleMouseLeave = () => {
-    clearTimeout(hoverTimeoutRef.current);
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
     setHovered(null);
   };
 
@@ -123,15 +147,13 @@ const App = () => {
     <div className="container">
       {videos.map((item) => {
         const { videoId } = item.id;
+        if (!videoId) return null;
+
         const { snippet } = item;
         const details = videoDetails[videoId];
         const logo = channelLogos[snippet.channelId];
-        const duration = details
-          ? isoToDuration(details.contentDetails.duration)
-          : "";
-        const views = details
-          ? `${parseInt(details.statistics.viewCount).toLocaleString()} views`
-          : "";
+        const duration = details ? isoToDuration(details.contentDetails.duration) : "";
+        const views = details ? `${parseInt(details.statistics.viewCount).toLocaleString()} views` : "";
         const date = new Date(snippet.publishTime).toLocaleDateString("en-US");
         const live = snippet.liveBroadcastContent === "live";
 
@@ -143,11 +165,7 @@ const App = () => {
             onMouseLeave={handleMouseLeave}
           >
             <div className="thumb-container">
-              <img
-                src={snippet.thumbnails.high.url}
-                alt="thumb"
-                className="thumb"
-              />
+              <img src={snippet.thumbnails.high.url} alt="thumb" className="thumb" />
               {duration && <span className="duration">{duration}</span>}
             </div>
             <h4 className="title">{snippet.title}</h4>
@@ -155,10 +173,12 @@ const App = () => {
               {logo && <img src={logo} alt="logo" className="logo" />}
               <div className="info">
                 <p className="channel-name">{snippet.channelTitle}</p>
-                <p className="meta-line">
-                  {views} • {date}
-                </p>
-                <span className="liveborder">{live && <span className="live">LIVE</span>}</span>
+                <p className="meta-line">{views} • {date}</p>
+                {live && (
+                  <span className="liveborder">
+                    <span className="live">LIVE</span>
+                  </span>
+                )}
               </div>
             </div>
           </div>
